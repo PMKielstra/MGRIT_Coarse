@@ -1,7 +1,8 @@
 % Finds an optimum weight vector to find an optimum coarse-grid operator
 % to solve an MGRIT/Parareal problem
 % Based on https://arxiv.org/pdf/1910.03726.pdf ("Krzysik").
-
+clear all;
+clc;
 %% Size of system
 space_steps = 2^8;
 time_steps = 2^9;
@@ -17,15 +18,23 @@ vec(space_steps) = 2;
 L = circulant(-vec, 1);
 
 Phi = calc_Phi(L, 0.85*dt/dx, space_steps);
-Phi = Phi^8;
-plot(eig(Phi), 'o r')
-pbaspect([1 1 1]);
 
 %% Restriction matrix
-R = zeros(3, space_steps);
-R(1, 1) = 1;
-R(2, 2) = 1;
-R(3, space_steps) = 1;
+nz = nnz(Phi(:, 1));
+R = zeros(nz, space_steps);
+j = 1;
+for i=1:space_steps
+    if Phi(i, 1) ~= 0
+        R(j, i) = 1;
+        j = j + 1;
+    end
+end
+
+Phi = Phi^2;
+plot(eig(Phi), 'o r');
+hold on;
+pbaspect([1 1 1]);
+
 
 %% Fixed DFT matrix (to enforce an ordering of eigenvalues)
 F = dftmtx(space_steps);
@@ -36,9 +45,16 @@ lambda = F * Phi(:, 1);
 f = @(w) solve_with_w(w, mu_calculation_matrix, lambda, space_steps);
 weighting = @(l) 1/(1 - norm(l) + 1e-6)^2;
 w_original = arrayfun(weighting, lambda);
+
+ps_eigs = mu_calculation_matrix * lsqlin(diag(w_original)^(1/2) * mu_calculation_matrix, diag(w_original)^(1/2) * lambda);
+plot(ps_eigs, 'x b');
+
 [w, f_val, exit_flag, output] = patternsearch(f, w_original, [], [], ...
     [], [], zeros(space_steps, 1), zeros(space_steps, 1) + Inf, ...
-    optimoptions(@patternsearch, 'Display', 'iter'));
+    optimoptions(@patternsearch, 'Display', 'iter', 'MaxIterations', 15));
+
+new_ps_eigs = mu_calculation_matrix * lsqlin(diag(w)^(1/2) * mu_calculation_matrix, diag(w)^(1/2) * lambda);
+plot(new_ps_eigs, '+ g');
 
 %% Subordinate problem taken from Krzysik
 function maxerr = solve_with_w(w, mu_calculation_matrix, lambda, M)
